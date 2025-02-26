@@ -58,6 +58,33 @@ function is_allowed_material_request(frm, item_group) {
   });
 }
 
+async function get_total_item_count(frm) {
+    var service_item = 0;
+    var product_item = 0;
+
+    var promises = frm.doc.items.map(async (item) => {
+        try {
+            var result = await is_allowed_material_request(frm, item.item_group);
+            if (result) {
+                service_item += 1;
+            } else {
+                product_item += 1;
+            }
+        } catch (error) {
+            console.error("Error checking item group:", error);
+        }
+    });
+
+    await Promise.all(promises);
+
+
+    return {
+        service_item,
+        product_item,
+        total_items: service_item + product_item
+    };
+}
+
 async function get_service_item_count(frm) {
     var service_item = 0;
     var product_item = frm.doc.items.length;
@@ -100,6 +127,15 @@ async function get_service_item_count(frm) {
     };
   }
   
+function get_qty(frm) {
+  var ttl = 0;
+  for (var i = 0; i < frm.doc.items.length; i++) {
+    const item = frm.doc.items[i];
+    ttl = ttl + item.qty;
+  }
+  return ttl;
+}
+
 async function get_amounter(frm) {
     var totalPayments = frm.doc.payment_plan.length;
     var c = 0;
@@ -127,37 +163,9 @@ async function get_amounter(frm) {
     title.paymentDone = `${c} `;
     title.totalPayments = `${totalPayments} `;
 
-    return { title, amount: "Paid", date: "" };
+    return { title, amount, date: "Paid" };
 }
 
-function get_qty(frm) {
-  var ttl = 0;
-  for (var i = 0; i < frm.doc.items.length; i++) {
-    const item = frm.doc.items[i];
-    ttl = ttl + item.qty;
-  }
-  return ttl;
-}
-
-// function calculate_months_left(frm) {
-//     if (frm.doc.delivery_date) {
-//         let today = frappe.datetime.get_today();
-//         let deliveryDate = frm.doc.delivery_date;
-
-//         let todayMoment = moment(today, "YYYY-MM-DD");
-//         let deliveryMoment = moment(deliveryDate, "YYYY-MM-DD");
-
-//         if (deliveryMoment.isBefore(todayMoment, 'day')) {
-//             return { monthsDone: "", totalMonths: "" };
-//         } else {
-//             let totalMonths = deliveryMoment.diff(todayMoment.clone().startOf('year'), 'months')- 1;
-//             let monthsDone = todayMoment.diff(todayMoment.clone().startOf('year'), 'months');
-            
-//             return { monthsDone, totalMonths };
-//         }
-//     }
-//     return { monthsDone: "", totalMonths: "" };
-// }  
 function calculate_months_left(frm) {
     if (frm.doc.start_date && frm.doc.end_date) {
         let today = frappe.datetime.get_today();
@@ -189,7 +197,25 @@ function calculate_months_left(frm) {
     return { monthsDone: "", totalMonths: "" };
 }
 
+// function calculate_months_left(frm) {
+//     if (frm.doc.delivery_date) {
+//         let today = frappe.datetime.get_today();
+//         let deliveryDate = frm.doc.delivery_date;
 
+//         let todayMoment = moment(today, "YYYY-MM-DD");
+//         let deliveryMoment = moment(deliveryDate, "YYYY-MM-DD");
+
+//         if (deliveryMoment.isBefore(todayMoment, 'day')) {
+//             return { monthsDone: "", totalMonths: "" };
+//         } else {
+//             let totalMonths = deliveryMoment.diff(todayMoment.clone().startOf('year'), 'months')- 1;
+//             let monthsDone = todayMoment.diff(todayMoment.clone().startOf('year'), 'months');
+            
+//             return { monthsDone, totalMonths };
+//         }
+//     }
+//     return { monthsDone: "", totalMonths: "" };
+// }  
 
 function getGrandTotal(frm) {
     const formattedValue = frappe.format(frm.doc.grand_total, { fieldtype: "Currency" }, { currency: frm.doc.currency });
@@ -219,29 +245,51 @@ function calculate_months_completed(frm) {
     return Math.max(months_completed, 0);
 }
 
+// function applyContractStatusColor(frm) {
+//     if (!frm || !frm.doc) {
+//         console.error("frm or frm.doc is undefined");
+//         return "#DCFDE6"; // Default color to avoid breaking
+//     }
+
+//     let status = frm.doc.custom_contract_status || "";
+
+//     switch (status) {
+//         case "In-Progress":
+//             return "#DCFDE6"; // Light Green
+//         case "Near Renewal":
+//             return "orange";
+//         case "Approaching Renewal":
+//             return "red";
+//         case "Expired":
+//             return "dimgray";
+//         default:
+//             return "#DCFDE6";
+//     }
+// }
+
 function applyContractStatusColor(frm) {
     if (!frm || !frm.doc) {
         console.error("frm or frm.doc is undefined");
-        return "#DCFDE6"; // Default color to avoid breaking
+        return { light: "#DCFDE6", dark: "#2E7D32" }; // Default colors (light & dark green)
     }
 
     let status = frm.doc.custom_contract_status || "";
 
     switch (status) {
         case "In-Progress":
-            return "#DCFDE6"; // Light Green
+            return { light: "#DCFDE6", dark: "#2E7D32" }; // Light Green & Dark Green
         case "Near Renewal":
-            return "orange";
+            return { light: "#FFD580", dark: "#FF8C00" }; // Light Orange & Dark Orange
         case "Approaching Renewal":
-            return "red";
+            return { light: "#FFB3B3", dark: "#B22222" }; // Light Red & Dark Red
         case "Expired":
-            return "dimgray";
+            return { light: "#D3D3D3", dark: "#696969" }; // Light Gray & Dark Gray
         default:
-            return "#DCFDE6";
+            return { light: "#DCFDE6", dark: "#2E7D32" }; // Default colors (Light & Dark Green)
     }
 }
 
- async function update_contract_status(frm) {
+async function update_contract_status(frm) {
     if (frm.doc.segment && (frm.doc.segment === "AMC" || frm.doc.segment === "Outsourcing")) {
         if (frm.doc.start_date && frm.doc.end_date) {
             let startDate = frappe.datetime.str_to_obj(frm.doc.start_date);
@@ -263,11 +311,8 @@ function applyContractStatusColor(frm) {
             } else if (remainingMonths > 8) {
                 status = "In-Progress";
             }
-
-         frm.set_value('custom_contract_status', status);
-frm.refresh_field('custom_contract_status');
-frm.dirty = false;  // Ensure `frm.dirty` is used correctly
-
+  frappe.model.set_value(frm.doctype, frm.docname, 'custom_contract_status', status);
+            frm.refresh_field('custom_contract_status');
             // Ensure the UI updates properly
             setTimeout(() => {
                 change_font_style(frm, status);
@@ -306,10 +351,6 @@ function change_font_style(frm, status) {
         } 
     }
 } 
-
-
-
-
 
 async function Card_1(frm) {
     var html_field = "custom_dashboard_html";
@@ -353,7 +394,6 @@ async function Card_1(frm) {
      <span style="color: ${item.color2}; font-weight: 600; ">${item.value1} </span> 
      </div>
      </br>
-     <div class="divider" style="background: darkblue"></div>
      <div>
         <span style="padding-top:10px; ; font-weight: 600; color: ${item.color2}">  ${item.value2} </span>
      </div>
@@ -374,7 +414,8 @@ async function Card_2(frm) {
     
     let { monthsDone, totalMonths } = total_months_left;
     let color = applyContractStatusColor(frm);
-    
+    console.log(color.light)
+    console.log(color.dark)
 
     
         const data = [
@@ -389,9 +430,9 @@ async function Card_2(frm) {
         value2: get_amounter_data?.amount, 
         value3: get_amounter_data?.title?.paymentDone || "", 
         value4: get_amounter_data?.title?.totalPayments || "", 
-        color1: get_amounter_data.amount === "Paid" ? "#DCFDE6" : "#F4E9FF",
-        color2: get_amounter_data.amount === "Paid" ? "#225a17" : "#680bb1",
-        color3: get_amounter_data.amount === "Paid" ? "darkgreen" : "darkblue",
+        color1: get_amounter_data.date === "Paid" ? "#DCFDE6" : "#F4E9FF",
+        color2: get_amounter_data.date === "Paid" ? "#225a17" : "#680bb1",
+        color3: get_amounter_data.date === "Paid" ? "darkgreen" : "darkblue",
         color4: "blue"
     },
     { 
@@ -399,10 +440,14 @@ async function Card_2(frm) {
         value2: frm.doc.custom_contract_status || "", 
         value3: monthsDone|| "", 
         value4: totalMonths || "", 
-        color1: color, 
-        color2: "darkgreen",
-        color3: "darkgreen",
-        color4: "blue",
+        color1: color.light,  
+        color2: color.dark,
+        color4: color.light,  
+        color3: color.dark,
+        // color1: "#DCFDE6",
+        // color2: "darkgreen",
+        // color3: "darkgreen",
+        // color4: "blue",
     }
   
 ];
@@ -445,54 +490,89 @@ const htmlContent = data.map(item => `
 }
 async function Card_3(frm) {
     var html_field = "custom_dashboard_html";
-    var html = "";
-    // 1
-      const grand_total = getGrandTotal(frm);
-    //2
+    const grand_total = getGrandTotal(frm);
     const get_amounter_data = await get_amounter(frm);
-    //3
-    var item_data = await get_service_item_count(frm);
-     const data = [
-  {
-    value1: frm.doc.customer_name,
-    value2: frm.doc.full_name,
-    color1: "#FDE3E6",
-    color2: "#930931"
-  },
-  {
-    value1: frm.doc.segment,
-    value2: grand_total,
-    color1: get_amounter_data.amount === "Paid" ? "#DCFDE6" : "#F4E9FF",
-    color2: get_amounter_data.amount === "Paid" ? "#225a17" : "#680bb1"
-  },
-  {
-    value1: `Total Items : ${frm.doc.total_qty}`,
-    value2: `Delivered Items : ${item_data?.delivered_qty ?? "N/A"}`,
-    color1: frm.doc.total_qty === item_data?.delivered_qty ? "#DCFDE6" : "#DEF3FF",
-    color2: frm.doc.total_qty === item_data?.delivered_qty ? "#225a17" : "#5b53de",
-  }
-];
-    const cssStyles = `<style>
-    .containers { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
-    .cards { flex: 1; min-width: 200px; text-align: center; padding: 24px; border-radius: 15px; height: 110px; }
-    .cards .divider { height: 1px;  position: relative; top:-10px; width: 170px; margin-left: 85px;  }
+    const item_data = await get_service_item_count(frm);
+    const Item = await get_total_item_count(frm);
+    let { service_item, product_item } = Item;
+
+    
+    const data = [
+        {
+            value1: frm.doc.customer_name,
+            value2: frm.doc.full_name,
+            value5: frm.doc.segment ? frm.doc.segment.substring(0, 4).toUpperCase() : "",
+            color1: "#FDE3E6",
+            color2: "#930931",
+            color3: "#930931",
+            color4: "#FDE3E6"
+        },
+        // {
+        //     value2: grand_total,
+        //      value3: get_amounter_data?.title?.paymentDone || "",
+        //     value4: get_amounter_data?.title?.totalPayments || "",
+        //     color1: get_amounter_data.amount === "Paid" ? "#DCFDE6" : "#F4E9FF",
+        //     color2: get_amounter_data.amount === "Paid" ? "#225a17" : "#680bb1",
+        //      color3: get_amounter_data.amount === "Paid" ? "darkgreen" : "darkblue",
+        //     color4: "blue"
+        // },
+        {
+            value1: `Product Item : ${product_item}`,
+            value2: `Delivered Items : ${item_data?.delivered_qty ?? "N/A"}`,
+            value5: `${service_item}`,
+            color1: frm.doc.total_qty === item_data?.delivered_qty ? "#DCFDE6" : "#DEF3FF",
+            color2: frm.doc.total_qty === item_data?.delivered_qty ? "#225a17" : "#5b53de",
+            color3: "#5b53de",
+        },
+        {
+            value1: get_amounter_data?.date,
+            value2: get_amounter_data?.amount,
+            value3: get_amounter_data?.title?.paymentDone || "",
+            value4: get_amounter_data?.title?.totalPayments || "",
+            color1: get_amounter_data.amount === "Paid" ? "#DCFDE6" : "#F4E9FF",
+            color2: get_amounter_data.amount === "Paid" ? "#225a17" : "#680bb1",
+            color3: get_amounter_data.amount === "Paid" ? "darkgreen" : "darkblue",
+            color4: "blue"
+        }
+    ];
+
+    const cssStyles = `
+    <style>
+        .containers { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
+        .cards { flex: 1; min-width: 200px; text-align: center; padding: 10px; border-radius: 15px; height: 120px; position: relative; border: 0.5px solid; display: flex; flex-direction: column; justify-content: center; }
+        .cards-circle { width: 60px; height: 60px; border-radius: 50%; position: absolute; top: 50%; left: 85%; transform: translate(-50%, -50%); display: flex; justify-content: center; align-items: center; font-weight: 600; }
+        .inside-card { display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        .item-count { font-size: 17px; font-weight: 600; }
+        .total-items { font-size: 14px; margin-top: -3px; }
     </style>`;
 
-    const htmlContent = data.map(item => {
-        return `
-     <div class="cards" style="background-color: ${item.color1} ; border: 0.5px solid darkblue">
-     <div>
-     <span style="color: ${item.color2}; font-weight: 600; ">${item.value1} </span> 
-     </div>
-     </br>
-     <div class="divider" style="background: darkblue"></div>
-     <div>
-        <span style="padding-top:10px; ; font-weight: 600; color: ${item.color2}">  ${item.value2} </span>
-     </div>
-</div>
-
-`;
-    }).join('');
+    const htmlContent = data.map(item => `
+        <div class="cards" style="background-color: ${item.color1}; border: 0.5px solid ${item.color2}">
+            <div>
+                <span style="color: ${item.color2}; padding-top:10px; font-weight: 600;">${item.value1}</span> 
+                <div class="main-circle">
+                    ${item.value3 && item.value4 
+                        ? `<div class="cards-circle" style="background-color:${item.color3}; color:${item.color1}; font-weight: 600;">
+                               <div class="inside-card">
+                                   <div class="item-count">${item.value3}</div>
+                                   <div class="total-items">/ ${item.value4}</div>    
+                               </div>
+                           </div>` 
+                        : '<div class="empty-circle"></div>'}
+                    ${item.value5  
+                        ? `<div class="cards-circle" style="background-color:${item.color3}; color:${item.color1}; font-weight: 600;">
+                               <div class="inside-card">
+                                   <div class="item-count">${item.value5}</div>
+                               </div>
+                           </div>` 
+                        : '<div class="empty-circle"></div>'}
+                </div>
+            </div>
+            <br>
+            <div>
+                <span style="font-weight: 600; color: ${item.color2}">${item.value2}</span>
+            </div>
+        </div>`).join('');
 
     frm.fields_dict[html_field].$wrapper.html(`${cssStyles} <div class="containers">${htmlContent}</div>`);
 }
